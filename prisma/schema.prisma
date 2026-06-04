@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Model untuk menyimpan data Pengguna (Pelanggan & Admin)
+model User {
+  id        String  @id @default(cuid())
+  name      String?
+  email     String  @unique
+  password  String?
+  phone     String?
+  role      String  @default("user") // "user" (customer) atau "admin" (LokalMart Owner)
+  avatarUrl String?
+
+  // Relasi
+  supplier      Supplier?
+  addresses     Address[]
+  orders        Order[]
+  voucherUsages VoucherUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk Buku Alamat Pengguna
+model Address {
+  id            String  @id @default(cuid())
+  label         String  @default("Rumah") // Rumah, Kantor, Toko
+  recipientName String
+  phone         String
+  province      String
+  city          String
+  street        String
+  zipCode       String
+  isPrimary     Boolean @default(false)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk Supplier/Pabrik (B2B)
+model Supplier {
+  id          String  @id @default(cuid())
+  companyName String
+  description String?
+  verified    Boolean @default(false)
+
+  // Profil B2B Lengkap
+  logoUrl         String?
+  bannerUrl       String?
+  address         String?
+  city            String?
+  province        String?
+  businessType    String? @default("Pabrik") // Pabrik, Distributor, Importir
+  yearEstablished String?
+  taxId           String? // NPWP
+  allowCOD        Boolean @default(false)
+
+  // Rekening Pencairan Dana
+  bankName    String? // BCA, Mandiri, BRI, dll
+  bankAccount String? // Nomor rekening
+  bankHolder  String? // Nama pemilik rekening
+
+  // Relasi ke User pemilik supplier ini
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Kategori Produk untuk Toko
+model Category {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  slug        String  @default("")
+  description String?
+  icon        String? // Emoji atau SVG path untuk ikon kategori
+  imageUrl    String? // URL gambar cover kategori
+
+  products Product[] // Relasi 1 to Many
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk menyimpan data Produk LokalMart
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  description String
+  price       Int
+  stock       Int     @default(0)
+  imageUrl    String?
+
+  // B2B Fields
+  minOrder Int    @default(1)
+  unit     String @default("Pieces") // e.g. "Pieces", "Sets", "Cartons"
+
+  // Pre-Order & Kustomisasi
+  isPreOrder    Boolean @default(false)
+  preOrderDays  Int?    // Waktu proses dalam hari
+  customOptions Json?   // [{"name": "Ukuran", "options": [{"label": "XL", "priceDelta": 5000}]}]
+
+  // Kategori
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Supplier
+  supplierId String?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  orderItems     OrderItem[]
+  flashSaleItems FlashSaleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk mencatat Transaksi/Pesanan
+model Order {
+  id          String @id @default(cuid())
+  totalAmount Int
+  status      String @default("pending") // pending, awaiting_payment, paid, packed, shipped, delivered, cancelled
+
+  // Informasi Pengiriman (Snapshot saat checkout)
+  shippingMethod   String? // e.g., "LokalOjek", "Reguler"
+  shippingName     String?
+  shippingPhone    String?
+  shippingProvince String?
+  shippingCity     String?
+  shippingAddress  String?
+  shippingZipCode  String?
+  courier          String? // JNE, J&T, Sicepat
+  resiNumber       String? // Nomor Resi Pelacakan
+
+  // Voucher
+  voucherId      String?
+  discountAmount Int     @default(0)
+
+  // Relasi pembeli
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Histori Pelacakan
+  trackingHistory OrderTracking[]
+
+  // Midtrans Payment Info & Mockup Native Payment
+  paymentMethod String? // BCA Virtual Account, GoPay, dll.
+  paymentToken String?
+  paymentUrl   String?
+
+  // Item-item yang dibeli dalam order ini
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk melacak histori status pesanan
+model OrderTracking {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status      String // packed, shipped, delivered
+  description String // "Pesanan sedang disiapkan oleh penjual"
+  createdAt   DateTime @default(now())
+}
+
+// Model untuk menyimpan detail barang di dalam Order
+model OrderItem {
+  id       String @id @default(cuid())
+  quantity Int
+  price    Int // Harga terekam saat pembelian (termasuk tambahan harga varian)
+
+  // Kustomisasi Pilihan Pembeli
+  selectedOptions Json?   // {"Ukuran": "XL", "Warna": "Merah"}
+  notes           String? // Catatan opsional
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+}
+
+// Model untuk Flash Sale
+model FlashSale {
+  id        String          @id @default(cuid())
+  title     String // "Flash Sale Akhir Bulan"
+  startTime DateTime
+  endTime   DateTime
+  isActive  Boolean         @default(true)
+  bannerUrl String?
+  items     FlashSaleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk Item dalam Flash Sale
+model FlashSaleItem {
+  id            String    @id @default(cuid())
+  flashSaleId   String
+  flashSale     FlashSale @relation(fields: [flashSaleId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  discountPrice Int // Harga setelah diskon (bukan persentase)
+  stock         Int // Stok khusus flash sale
+  sold          Int       @default(0)
+
+  @@unique([flashSaleId, productId])
+}
+
+// Model untuk Voucher Diskon
+model Voucher {
+  id          String         @id @default(cuid())
+  code        String         @unique // "BELIO50"
+  type        String // "percentage" | "nominal"
+  value       Int // 50 (50% atau Rp 50.000)
+  minPurchase Int            @default(0)
+  maxDiscount Int? // Batas potongan maks (untuk persentase)
+  usageLimit  Int            @default(100)
+  usedCount   Int            @default(0)
+  isPublic    Boolean        @default(false) // Tampil di halaman promo?
+  startDate   DateTime
+  endDate     DateTime
+  usages      VoucherUsage[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+// Model untuk melacak penggunaan Voucher oleh User
+model VoucherUsage {
+  id        String   @id @default(cuid())
+  voucherId String
+  voucher   Voucher  @relation(fields: [voucherId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  orderId   String?
+  usedAt    DateTime @default(now())
+
+  @@unique([voucherId, userId, orderId])
+}
+
+// Model untuk Kampanye Promo / Banner Dinamis
+model Campaign {
+  id       String  @id @default(cuid())
+  title    String
+  subtitle String?
+  position String // "main_slider", "right_top", "right_bottom"
+
+  // Visual
+  imageUrl  String?
+  colorFrom String?
+  colorTo   String?
+  textColor String? @default("white")
+
+  // Konten Halaman Promo
+  pageTitle   String?
+  pageContent String? @db.Text
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Model untuk melacak OTP (Telepon/SMS/WA)
+model VerificationCode {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String   // 6 digit angka
+  channel   String   // "sms", "wa", "call"
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone, code])
+}
